@@ -1,0 +1,195 @@
+<?php
+require_once dirname(__DIR__, 3) . '/functions.php';
+$this->headLink()->appendStylesheet($this->assetUrl('css/nodegraph.css', 'NodeGraph'));
+
+if (!isset($sigmaGraph)) {
+
+    if (!isset($query)) {
+        echo "No item found";
+    }
+
+    // get items
+    parse_str($query, $queryArray);
+    $items = $this->api()->search('items', $queryArray)->getContent();
+
+    if (count($items) == 0) {
+        echo "No item found";
+    }
+
+    $groupBy = $group_by_control['group-by-select'] ?? 'resource_class';
+    $propTerm = $groupBy === 'property_value' ? ($group_by_control['group-by-property-select'] ?? null) : null;
+
+    $sigmaGraph = sigmaGenerateGraph($items, [
+        'groupBy'                   => $groupBy,
+        'propTerm'                  => $propTerm,
+        'nodeColors'                => $node_colors,
+        'nodeIcons'                 => $node_icons,
+        'relationshipProperties'    => (array) ($relationships_properties ?? []),
+        'excludeWithoutRelationships' => !empty($exclude_without_relationships),
+        'popupConfig' => $popup_content,
+        'sizeMin'                   => 3,
+        'sizeMax'                   => 18,
+    ]);
+}
+?>
+
+<div class="network-view" style='width: <?php echo $width ?> ;height:  <?php echo $height ?> ;'>
+    <div id="network-container">
+        <div id="legendDiv"></div>
+        <div id="network-tooltip"></div>
+    </div>
+</div>
+
+<script>
+    let nodes = <?= json_encode($sigmaGraph['nodes']) ?>;
+    let edges = <?= json_encode($sigmaGraph['edges']) ?>;
+    let legendMap = <?= json_encode($sigmaGraph['legendMap']) ?>;
+
+    let graph = new graphology.Graph({
+        type: 'undirected',
+        multi: false
+    });
+
+    // Add nodes
+    nodes.forEach(n => {
+        const id = String(n.id);
+        if (graph.hasNode(id)) return;
+        graph.addNode(id, {
+            x: +n.x,
+            y: +n.y,
+            size: +n.size,
+            label: n.label || '',
+            title: n.title || n.label || '',
+            color: n.color,
+            originalColor: n.originalColor || n.color,
+            link: n.link || null,
+            popupContent: n.popupContent || '',
+            icon: n.icon || null,
+            image: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/53/Sheba1.JPG/800px-Sheba1.JPG"
+        });
+    });
+
+    edges.forEach(e => {
+        const s = String(e.source),
+            t = String(e.target);
+        if (!graph.hasNode(s) || !graph.hasNode(t)) return;
+        try {
+            if (!graph.hasEdge(s, t)) {
+                graph.addEdge(s, t, {
+                    color: e.color || '#ccc',
+                    size: e.size || 1
+                });
+            }
+        } catch (_) {}
+    });
+
+    //Run ForceAtlas2 
+    const fa2Settings = graphologyLibrary.layoutForceAtlas2.inferSettings(graph);
+    graphologyLibrary.layoutForceAtlas2.assign(graph, {
+        iterations: 200,
+        settings: fa2Settings
+    });
+
+    const container = document.getElementById('network-container')
+    // const sigma = new Sigma(graph, container);
+    const sigma = new Sigma(graph, container);
+
+    // Legend
+    buildLegend(legendMap);
+
+    sigma.on('clickNode', ({
+        node
+    }) => {
+        const attrs = graph.getNodeAttributes(node);
+        if (attrs.link) window.open(attrs.link, '_blank');
+    });
+
+    sigma.on('enterNode', ({
+        node
+    }) => {
+        container.style.cursor = 'pointer';
+
+        // Grey others & hide labels
+        graph.forEachNode((n, attrs) => {
+            if (n !== node) graph.setNodeAttribute(n, 'color', '#ccc');
+            graph.setNodeAttribute(n, 'label', '');
+        });
+
+        // Restore hovered node & neighbors
+        graph.forEachEdge((e, attrs, src, trg) => {
+            if (src === node || trg === node) {
+                const sA = graph.getNodeAttributes(src);
+                const tA = graph.getNodeAttributes(trg);
+                graph.setNodeAttribute(src, 'color', sA.originalColor || sA.color);
+                graph.setNodeAttribute(trg, 'color', tA.originalColor || tA.color);
+                graph.setNodeAttribute(src, 'label', sA.title || sA.label || '');
+                graph.setNodeAttribute(trg, 'label', tA.title || tA.label || '');
+                graph.setEdgeAttribute(e, 'color', (graph.getNodeAttribute(node, 'originalColor') || '#ccc'));
+                graph.removeEdgeAttribute(e, 'hidden');
+            } else {
+                graph.setEdgeAttribute(e, 'hidden', true);
+            }
+        });
+
+        sigma.refresh();
+        showTooltip(graph.getNodeAttributes(node));
+    });
+
+    sigma.on('leaveNode', () => {
+        container.style.cursor = 'default';
+
+        // Restore nodes
+        graph.forEachNode((n, attrs) => {
+            graph.setNodeAttribute(n, 'color', attrs.originalColor || attrs.color);
+            graph.setNodeAttribute(n, 'label', attrs.title || attrs.label || '');
+        });
+
+        // Restore edges
+        graph.forEachEdge(e => {
+            graph.setEdgeAttribute(e, 'color', '#ccc');
+            graph.removeEdgeAttribute(e, 'hidden');
+        });
+
+        sigma.refresh();
+        hideTooltip();
+    });
+
+
+    // Legend builder (unchanged except we use icon font instead of bg-image)
+    function buildLegend(legendData) {
+        const el = document.getElementById('legendDiv');
+        let html = '';
+        const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        Object.keys(legendData).forEach(label => {
+            const color = legendData[label].color || '#888';
+            const icon = legendData[label].icon || 'fas fa-circle';
+            html += `
+      <div class="legend-row" style="display:flex;align-items:center;justify-content:space-between;margin-top:3px">
+        <span class="legend-label" style="margin-right:10px;">${esc(label)}</span>
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:${color};">
+          <i class="${icon}" aria-hidden="true" style="font-size:16px;color:#fff;"></i>
+        </span>
+      </div>`;
+        });
+        el.innerHTML = html;
+    }
+
+    // Tooltip helpers
+    function showTooltip(attrs) {
+        const t = document.getElementById('network-tooltip');
+        t.innerHTML = attrs.popupContent || '';
+        t.style.display = 'block';
+    }
+
+    function hideTooltip() {
+        document.getElementById('network-tooltip').style.display = 'none';
+    }
+
+    document.addEventListener('mousemove', function(e) {
+        const t = document.getElementById('network-tooltip');
+        const c = container.getBoundingClientRect();
+        t.style.left = (e.clientX - c.left + 10) + 'px';
+        t.style.top = (e.clientY - c.top - 10) + 'px';
+    });
+</script>

@@ -1,0 +1,42 @@
+<script>
+    (function($) {
+        function initRelProps(scope) {
+            // Only target our module's multiselects
+            $(scope).find('select.ng-relprops').each(function() {
+                const $s = $(this);
+
+                // Avoid double-init
+                if ($s.data('ngChosenInit')) return;
+
+                if ($.fn.chosen) {
+                    try {
+                        $s.chosen({
+                            width: '100%',
+                            include_group_label_in_selected: true,
+                            placeholder_text_multiple: $s.data('placeholder') || 'Select one or more properties…',
+                        });
+                        $s.data('ngChosenInit', 1);
+                    } catch (e) {
+                        // eslint-disable-next-line no-console
+                        console.error('NodeGraph: Chosen init failed', e);
+                    }
+                }
+            });
+        }
+
+        // Initial load
+        $(function() {
+            initRelProps(document);
+        });
+
+        // Re-init when Omeka S admin loads/changes forms dynamically
+        $(document)
+            .on('o:form-loaded o:block-added o:form-updated', function(_e, ctx) {
+                initRelProps(ctx || document);
+            })
+            // When a collection adds a new row (NodeGraph uses Collection elements)
+            .on('o:collection-add', function(_e, ctx) {
+                initRelProps(ctx || document);
+            });
+    })(jQuery);
+</script>

@@ -1,0 +1,62 @@
+<script>
+    (function($) {
+        function wire(scope) {
+            // For each "Group by" select inside this scope…
+            $(scope).find('select.node_graph_group_by_select').each(function() {
+                const $group = $(this);
+
+                // Limit actions to the SAME fieldset that contains this pair
+                const $fieldset = $group.closest('fieldset'); // this is your GroupByFieldset
+                const $prop = $fieldset.find('select.node_graph_group_by_property').first();
+                const $propField = $prop.closest('.field'); // hide/show the whole field (label + input)
+
+                if (!$prop.length) return;
+
+                function enableChosen() {
+                    if ($.fn.chosen && !$prop.data('chosen-init')) {
+                        $prop.chosen({
+                            include_group_label_in_selected: true,
+                            width: '100%'
+                        });
+                        $prop.data('chosen-init', 1);
+                    }
+                }
+
+                function disableChosen() {
+                    if ($.fn.chosen && $prop.data('chosen-init')) {
+                        try {
+                            $prop.chosen('destroy');
+                        } catch (e) {}
+                        $prop.removeData('chosen-init');
+                    }
+                }
+
+                function update() {
+                    if ($group.val() === 'property_value') {
+                        $propField.show();
+                        enableChosen();
+                    } else {
+                        // clear value when hiding, so it doesn’t save stale data
+                        disableChosen();
+                        $prop.val('').trigger('change');
+                        $propField.hide();
+                    }
+                }
+
+                // Initial state + bind
+                update();
+                $group.on('change', update);
+            });
+        }
+
+        // Initial load
+        $(function() {
+            wire(document);
+        });
+
+        // When Omeka dynamically adds a block/fieldset in admin
+        $(document).on('o:block-added o:form-loaded', function(e, ctx) {
+            wire(ctx || document);
+        });
+    })(jQuery);
+</script>

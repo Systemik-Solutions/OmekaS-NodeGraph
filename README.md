@@ -1,0 +1,1 @@
+Omeka S version used for testing: 4.1.1
