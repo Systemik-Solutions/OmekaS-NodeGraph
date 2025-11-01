@@ -2,6 +2,14 @@
 require_once dirname(__DIR__, 3) . '/functions.php';
 $this->headLink()->appendStylesheet($this->assetUrl('css/nodegraph.css', 'NodeGraph'));
 
+
+$ajaxUrl = $this->url(
+    'node-graph-ajax',               // <-- note the "site/" prefix
+    ['action' => 'popup-extra'],          // or your action, e.g. 'get-metadata'
+    ['force_canonical' => true]
+);
+
+
 if (!isset($sigmaGraph)) {
 
     if (!isset($query)) {
@@ -23,10 +31,9 @@ if (!isset($sigmaGraph)) {
         'groupBy'                   => $groupBy,
         'propTerm'                  => $propTerm,
         'nodeColors'                => $node_colors,
-        'nodeIcons'                 => $node_icons,
         'relationshipProperties'    => (array) ($relationships_properties ?? []),
         'excludeWithoutRelationships' => !empty($exclude_without_relationships),
-        'popupConfig' => $popup_content,
+        'popupConfig' => $popup_config,
         'sizeMin'                   => 3,
         'sizeMax'                   => 18,
     ]);
@@ -41,9 +48,14 @@ if (!isset($sigmaGraph)) {
 </div>
 
 <script>
+    const GET_METADATA_AJAX = <?= json_encode($ajaxUrl) ?>;
+    const POPUP_CONFIG = <?= json_encode($popup_config ?? []) ?>;
+
     let nodes = <?= json_encode($sigmaGraph['nodes']) ?>;
     let edges = <?= json_encode($sigmaGraph['edges']) ?>;
     let legendMap = <?= json_encode($sigmaGraph['legendMap']) ?>;
+
+    let popupContentMap = [];
 
     let graph = new graphology.Graph({
         type: 'undirected',
@@ -61,10 +73,10 @@ if (!isset($sigmaGraph)) {
             label: n.label || '',
             title: n.title || n.label || '',
             color: n.color,
+            id: n.id,
             originalColor: n.originalColor || n.color,
             link: n.link || null,
             popupContent: n.popupContent || '',
-            icon: n.icon || null,
             image: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/53/Sheba1.JPG/800px-Sheba1.JPG"
         });
     });
@@ -94,20 +106,36 @@ if (!isset($sigmaGraph)) {
     // const sigma = new Sigma(graph, container);
     const sigma = new Sigma(graph, container);
 
+    const tooltipEl = document.getElementById('network-tooltip');
+    // Stop tooltip interactions from bubbling to the graph
+    ['mousedown', 'mouseup', 'click', 'dblclick', 'contextmenu',
+        'wheel', 'touchstart', 'touchmove', 'touchend', 'pointerdown', 'pointerup'
+    ]
+    .forEach(ev => tooltipEl.addEventListener(ev, e => {
+        e.stopPropagation();
+    }, {
+        passive: false,
+
+    }));
+
+    // Prevent sigma from zooming/panning when scrolling the tooltip
+    tooltipEl.addEventListener('wheel', e => {
+        // e.preventDefault();
+        e.stopPropagation();
+    }, {
+        passive: false,
+
+    });
+
+    let selectedNode = null;
+    let toolTipLeft = '0px';
+    let toolTipTop = '0px';
+
     // Legend
     buildLegend(legendMap);
 
-    sigma.on('clickNode', ({
-        node
-    }) => {
-        const attrs = graph.getNodeAttributes(node);
-        if (attrs.link) window.open(attrs.link, '_blank');
-    });
-
-    sigma.on('enterNode', ({
-        node
-    }) => {
-        container.style.cursor = 'pointer';
+    function selectNode(node) {
+        selectedNode = node;
 
         // Grey others & hide labels
         graph.forEachNode((n, attrs) => {
@@ -133,10 +161,10 @@ if (!isset($sigmaGraph)) {
 
         sigma.refresh();
         showTooltip(graph.getNodeAttributes(node));
-    });
+    }
 
-    sigma.on('leaveNode', () => {
-        container.style.cursor = 'default';
+    function clearSelection() {
+        selectedNode = null;
 
         // Restore nodes
         graph.forEachNode((n, attrs) => {
@@ -152,10 +180,27 @@ if (!isset($sigmaGraph)) {
 
         sigma.refresh();
         hideTooltip();
+    }
+
+    sigma.on('clickNode', ({
+        node
+    }) => {
+        const attrs = graph.getNodeAttributes(node);
+        // toggle selection if clicking the same node
+        if (selectedNode === node) {
+            clearSelection();
+            return;
+        }
+        selectNode(node);
+    });
+
+    // Click on the background (stage) clears selection (NEW)
+    sigma.on('clickStage', () => {
+        if (selectedNode !== null) clearSelection();
     });
 
 
-    // Legend builder (unchanged except we use icon font instead of bg-image)
+    // Legend builder 
     function buildLegend(legendData) {
         const el = document.getElementById('legendDiv');
         let html = '';
@@ -163,12 +208,10 @@ if (!isset($sigmaGraph)) {
             .replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
         Object.keys(legendData).forEach(label => {
             const color = legendData[label].color || '#888';
-            const icon = legendData[label].icon || 'fas fa-circle';
             html += `
       <div class="legend-row" style="display:flex;align-items:center;justify-content:space-between;margin-top:3px">
         <span class="legend-label" style="margin-right:10px;">${esc(label)}</span>
         <span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:${color};">
-          <i class="${icon}" aria-hidden="true" style="font-size:16px;color:#fff;"></i>
         </span>
       </div>`;
         });
@@ -178,8 +221,42 @@ if (!isset($sigmaGraph)) {
     // Tooltip helpers
     function showTooltip(attrs) {
         const t = document.getElementById('network-tooltip');
+
+        // Base (title + thumbnail already there from attrs.popupContent)
         t.innerHTML = attrs.popupContent || '';
         t.style.display = 'block';
+        t.style.left = toolTipLeft;
+        t.style.top = toolTipTop;
+
+        // Avoid duplicate ajax call
+        if (popupContentMap[attrs.id]) {
+            t.innerHTML = (attrs.popupContent || '') + popupContentMap[attrs.id];
+            return;
+        }
+
+        // Only hit backend if user wants either metadata or relationships
+        const wantMeta = Array.isArray(POPUP_CONFIG) && POPUP_CONFIG.includes('metadata');
+        const wantRel = Array.isArray(POPUP_CONFIG) && POPUP_CONFIG.includes('relationships');
+
+        if (GET_METADATA_AJAX && (wantMeta || wantRel)) {
+            const params = new URLSearchParams({
+                id: String(attrs.id),
+                metadata: wantMeta ? '1' : '0',
+                relationships: wantRel ? '1' : '0',
+            });
+
+            fetch(`${GET_METADATA_AJAX}?${params.toString()}`, {
+                    credentials: 'same-origin'
+                })
+                .then(r => r.ok ? r.json() : Promise.reject(r))
+                .then(data => {
+                    if (data && data.html) {
+                        t.innerHTML = (attrs.popupContent || '') + data.html;
+                        popupContentMap[attrs.id] = data.html;
+                    }
+                })
+                .catch(err => console.error('ajax failed', err));
+        }
     }
 
     function hideTooltip() {
@@ -187,9 +264,8 @@ if (!isset($sigmaGraph)) {
     }
 
     document.addEventListener('mousemove', function(e) {
-        const t = document.getElementById('network-tooltip');
         const c = container.getBoundingClientRect();
-        t.style.left = (e.clientX - c.left + 10) + 'px';
-        t.style.top = (e.clientY - c.top - 10) + 'px';
+        toolTipLeft = (e.clientX - c.left + 10) + 'px';
+        toolTipTop = (e.clientY - c.top - 10) + 'px';
     });
 </script>

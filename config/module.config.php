@@ -16,11 +16,28 @@ return [
             \NodeGraph\Form\Fieldset\GroupByFieldset::class => \Laminas\ServiceManager\Factory\InvokableFactory::class,
             \NodeGraph\Form\Fieldset\NodeColorsFieldset::class     => \Laminas\ServiceManager\Factory\InvokableFactory::class,
             \NodeGraph\Form\Fieldset\NodeColorPairFieldset::class  => \Laminas\ServiceManager\Factory\InvokableFactory::class,
-            \NodeGraph\Form\Fieldset\NodeIconsFieldset::class    => \Laminas\ServiceManager\Factory\InvokableFactory::class,
-            \NodeGraph\Form\Fieldset\NodeIconPairFieldset::class => \Laminas\ServiceManager\Factory\InvokableFactory::class,
+        ],
+    ],
+    'router' => [
+        'routes' => [
+            'node-graph-ajax' => [
+                'type' => \Laminas\Router\Http\Segment::class,
+                'options' => [
+                    'route' => '/node-graph/ajax/:action',
+                    'defaults' => [
+                        'controller' => \NodeGraph\Controller\AjaxController::class,
+                        'action'     => 'popup-extra',
+                    ],
+                ],
+            ],
+        ],
+    ],
+
+    // + controller factory
+    'controllers' => [
+        'factories' => [
+             \NodeGraph\Controller\AjaxController::class => \Laminas\ServiceManager\Factory\InvokableFactory::class,
         ],
     ],
 ];
 
-
-// To do: Node colors and icons if preset. remove button wont work

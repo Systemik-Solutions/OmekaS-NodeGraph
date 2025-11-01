@@ -40,7 +40,6 @@ class BuildGraph extends AbstractJob
         $query  = $data['query'] ?? '';
         $group  = $data['group_by_control'] ?? [];
         $colors = ($data['node_colors']['rows'] ?? []);
-        $icons  = ($data['node_icons']['rows']  ?? []);
         $rels   = (array) ($data['relationships_properties'] ?? []);
         $exclude = !empty($data['exclude_without_relationships']);
         $popup  = (array) ($data['popup_content'] ?? []);
@@ -53,7 +52,6 @@ class BuildGraph extends AbstractJob
             'propTerm'   => ($group['group-by-select'] ?? null) === 'property_value'
                 ? ($group['group-by-property-select'] ?? null) : null,
             'nodeColors' => $colors,
-            'nodeIcons'  => $icons,
             'relationshipProperties' => $rels,
             'excludeWithoutRelationships' => $exclude,
             'popupConfig' => $popup,

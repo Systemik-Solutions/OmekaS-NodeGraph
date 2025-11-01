@@ -102,7 +102,6 @@
                 if ($tmplHolder.length && !$coll.data('ngc-add-bound')) {
                     $coll.data('ngc-add-bound', 1);
 
-                    // Bake __blockIndex__ with the current block index (just like icons)
                     const $layout = $block.find('input[name^="o:block["][name$="[o:layout]"]').first();
                     const m = $layout.length ? $layout.attr('name').match(/^o:block\[(\d+)\]\[o:layout\]$/) : null;
                     const blockIdx = m ? m[1] : null;

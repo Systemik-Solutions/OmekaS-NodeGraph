@@ -117,36 +117,6 @@ function sigmaBuildColorMap(array $items, string $groupBy, ?string $propTerm, ar
     return $map;
 }
 
-/**
- * Build icon map for current groupBy, with a default icon for gaps.
- * @return array<string,string> key => icon class (Font Awesome)
- */
-function sigmaBuildIconMap(array $items, string $groupBy, ?string $propTerm, array $nodeIcons, string $defaultIcon = 'fas fa-circle'): array
-{
-    $rows = sigmaNormalizeRows($nodeIcons);
-    $map  = [];
-
-    foreach ($rows as $row) {
-        $key = '';
-        if ($groupBy === 'resource_class')       $key = (string) ($row['resource_class'] ?? '');
-        elseif ($groupBy === 'resource_template') $key = (string) ($row['resource_template'] ?? '');
-        elseif ($groupBy === 'property_value')    $key = (string) ($row['property_value'] ?? '');
-        if ($key === '') continue;
-
-        $icon = trim((string) ($row['icon'] ?? ''));
-        $map[$key] = $icon !== '' ? $icon : $defaultIcon;
-    }
-
-    // Ensure every observed group has an icon
-    foreach ($items as $item) {
-        if (!$item instanceof ItemRepresentation) continue;
-        $key = sigmaGetItemGroupKey($item, $groupBy, $propTerm);
-        if ($key === '') continue;
-        if (!isset($map[$key])) $map[$key] = $defaultIcon;
-    }
-
-    return $map;
-}
 
 /**
  * Safe thumbnail URL (best-effort).
@@ -181,8 +151,13 @@ function sigmaBuildPopUpContent(ItemRepresentation $item, array $popupConfig)
         return htmlspecialchars((string) $s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     };
 
+    $itemUrl = (string) $item->siteUrl();
+    // Title
     if (in_array('title', $popupConfig, true)) {
-        $popupContent .= '<p style="font-size:10px">' . $e($item->displayTitle()) . '</p>';
+        $title = $e($item->displayTitle());
+        $popupContent .= $itemUrl
+            ? '<p style="font-size:10px"><a href="' . $e($itemUrl) . '" target="_blank" rel="noopener">' . $title . '</a></p>'
+            : '<p style="font-size:10px">' . $title . '</p>';
     }
 
     // Thumbnail
@@ -190,136 +165,8 @@ function sigmaBuildPopUpContent(ItemRepresentation $item, array $popupConfig)
         $thumbnail = sigmaGetItemThumbnailUrl($item);
         if ($thumbnail) {
             $popupContent .= '<div>'
-                .  '<img src="' . $e($thumbnail) . '" alt="" style="max-width:100px;max-height:100px" />'
+                .  '<img src="' . $e($thumbnail) . '" alt="" style="width:100%;height:auto;display:block" />'
                 .  '</div>';
-        }
-    }
-
-    // Metadata: all non-resource values (literal, uri), each in its own <p>
-    if (in_array('metadata', $popupConfig, true)) {
-        $bundle = $item->values(); // keyed by term
-
-        foreach ($bundle as $term => $propData) {
-            // Normalize to: $prop (PropertyRepresentation|null), $vals (ValueRepresentation[])
-            $prop = null;
-            $vals = [];
-
-            if (is_array($propData) && array_key_exists('values', $propData)) {
-                // Shape #1: ['property' => PropertyRepresentation|array, 'values' => ValueRepresentation[]]
-                $vals = is_array($propData['values']) ? $propData['values'] : [];
-                if (isset($propData['property']) && $propData['property'] instanceof PropertyRepresentation) {
-                    $prop = $propData['property'];
-                }
-            } elseif (is_array($propData) && isset($propData[0]) && $propData[0] instanceof ValueRepresentation) {
-                // Shape #2: ValueRepresentation[] directly
-                $vals = $propData;
-            } else {
-                // Unknown shape — skip
-                continue;
-            }
-
-            // Label: prefer PropertyRepresentation->label(), else fall back to a friendly term
-            $label = $prop instanceof PropertyRepresentation ? $prop->label() : preg_replace('~^.+:~', '', (string) $term);
-
-            foreach ($vals as $v) {
-                if (!$v instanceof ValueRepresentation) {
-                    // Very old shapes could be arrays; keep a defensive fallback:
-                    $type = is_array($v) ? ($v['type'] ?? '') : '';
-                    if ($type === 'resource' || $type === 'resource:item' || $type === 'resource:media') {
-                        continue;
-                    }
-                    $text = '';
-                    if (is_array($v)) {
-                        $text = isset($v['@value']) ? (string) $v['@value']
-                            : (isset($v['@id']) ? (string) $v['@id'] : (string) ($v['value'] ?? ''));
-                    }
-                    if ($text !== '') {
-                        $popupContent .= '<p style="font-size:10px"><strong>' . $e($label) . ':</strong> ' . $e($text) . '</p>';
-                    }
-                    continue;
-                }
-
-                // Skip resource links; we only want non-resource objects
-                $type = $v->type();
-                if ($type === 'resource' || $type === 'resource:item' || $type === 'resource:media') {
-                    continue;
-                }
-
-                // Literal and URI
-                $text = (string) $v->value();
-                if ($text === '') {
-                    continue;
-                }
-
-                $popupContent .= '<p style="font-size:10px"><strong>'
-                    . $e(sigmaUcfirst($label)) . ':</strong> ' . $e($text) . '</p>';
-            }
-        }
-    }
-
-    // Relationships: only resource-valued links to *items*
-    if (in_array('relationships', $popupConfig, true)) {
-        $bundle = $item->values(); // keyed by term
-
-        foreach ($bundle as $term => $propData) {
-            // Normalize shapes -> $prop, $vals
-            $prop = null;
-            $vals = [];
-
-            if (is_array($propData) && array_key_exists('values', $propData)) {
-                $vals = is_array($propData['values']) ? $propData['values'] : [];
-                if (isset($propData['property']) && $propData['property'] instanceof PropertyRepresentation) {
-                    $prop = $propData['property'];
-                }
-            } elseif (is_array($propData) && isset($propData[0]) && $propData[0] instanceof ValueRepresentation) {
-                $vals = $propData;
-            } else {
-                continue;
-            }
-
-            $label = $prop instanceof PropertyRepresentation
-                ? $prop->label()
-                : preg_replace('~^.+:~', '', (string) $term);
-
-            $links = [];
-            foreach ($vals as $v) {
-                if (!$v instanceof ValueRepresentation) {
-                    // Legacy array fallback
-                    $type = is_array($v) ? ($v['type'] ?? '') : '';
-                    if ($type !== 'resource' && $type !== 'resource:item') {
-                        continue;
-                    }
-                    // No reliable way to resolve resource from legacy array; skip
-                    continue;
-                }
-
-                // Accept both 'resource:item' and generic 'resource' (check valueResource)
-                $type = $v->type();
-                if (($type !== 'resource' && $type !== 'resource:item') || !$v->valueResource()) {
-                    continue;
-                }
-
-                $vr = $v->valueResource();
-                if (!$vr instanceof ItemRepresentation) {
-                    continue; // only link to items
-                }
-
-                $title = $vr->displayTitle();
-                $url   = method_exists($vr, 'siteUrl') ? $vr->siteUrl() : '';
-
-                if ($url) {
-                    $links[] = '<a href="' . $e($url) . '" target="_blank" rel="noopener">' . $e($title) . '</a>';
-                } else {
-                    $links[] = $e($title);
-                }
-            }
-
-            if ($links) {
-                $popupContent .= '<p style="font-size:10px"><strong>'
-                    . $e(sigmaUcfirst($label)) . ':</strong> '
-                    . implode(', ', $links)
-                    . '</p>';
-            }
         }
     }
 
@@ -331,7 +178,6 @@ function sigmaGenerateGraph(array $items, array $opts = []): array
     $groupBy   = $opts['groupBy']   ?? 'resource_class';
     $propTerm  = $opts['propTerm']  ?? null;
     $colorsRaw = $opts['nodeColors'] ?? [];
-    $iconsRaw  = $opts['nodeIcons']  ?? [];
     $relProps  = array_values(array_filter($opts['relationshipProperties'] ?? []));
     $excludeIsolated = !empty($opts['excludeWithoutRelationships']);
     $sizeMin   = isset($opts['sizeMin']) ? (int) $opts['sizeMin'] : 3;
@@ -341,7 +187,6 @@ function sigmaGenerateGraph(array $items, array $opts = []): array
 
     // Build maps
     $colorMap = sigmaBuildColorMap($items, $groupBy, $propTerm, $colorsRaw);
-    $iconMap  = sigmaBuildIconMap($items, $groupBy, $propTerm, $iconsRaw);
 
     // Pre-index items by id for quick lookups
     $itemById = [];
@@ -359,7 +204,6 @@ function sigmaGenerateGraph(array $items, array $opts = []): array
         $short    = (mb_strlen($label, 'UTF-8') > 25) ? (mb_substr($label, 0, 22, 'UTF-8') . '…') : $label;
 
         $color    = $key !== '' && isset($colorMap[$key]) ? $colorMap[$key] : sigmaColorFromKey((string) $id);
-        $icon     = $key !== '' && isset($iconMap[$key])  ? $iconMap[$key]  : 'fas fa-circle';
 
         if ($key !== '' && !isset($groupLabels[$key])) {
             $groupLabels[$key] = sigmaResolveGroupLabelFromItem($item, $groupBy, $propTerm);
@@ -380,12 +224,9 @@ function sigmaGenerateGraph(array $items, array $opts = []): array
             'size'      => $sizeMin,
             'color'     => $color,
             'originalColor' => $color,
-            'icon'      => $icon,
             'groupKey'  => $key,
             'popupContent' => sigmaBuildPopUpContent($item, $popupConfig),
             'link'      => method_exists($item, 'siteUrl') ? $item->siteUrl() : null,
-            'type' => 'image',
-            "image" => 'https://cdn0.iconfinder.com/data/icons/30-hardware-line-icons/64/Server-128.png',
         ];
     }
 
@@ -528,7 +369,6 @@ function sigmaGenerateGraph(array $items, array $opts = []): array
 
         $legendMap[$groupLabels[$key] ?? (string) $key] = [
             'color' => $colorMap[$key] ?? sigmaColorFromKey($key),
-            'icon'  => $iconMap[$key]  ?? 'fas fa-circle',
         ];
     }
 

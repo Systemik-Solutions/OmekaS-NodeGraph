@@ -10,7 +10,8 @@
 #network-tooltip {
     position: absolute;
     background-color: #fff;
-    max-width: 200px;
+    max-width: 250px;
+    max-height: 400px;
     word-wrap: break-word;
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
     border-radius: 5px;
@@ -19,7 +20,11 @@
     pointer-events: none;
     z-index: 1000;
     display: none;
+    line-height: normal;
+    pointer-events: auto;
+    overflow-y: auto;
 }
+
 
 #network-tooltip p {
     margin-top: 5px;
