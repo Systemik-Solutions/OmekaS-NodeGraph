@@ -2,155 +2,213 @@
 
 namespace NodeGraph\Controller;
 
-use Error;
 use Laminas\Mvc\Controller\AbstractActionController;
 use Laminas\View\Model\JsonModel;
 use Omeka\Api\Representation\ItemRepresentation;
-use Omeka\Api\Representation\ValueRepresentation;
 use Omeka\Api\Representation\PropertyRepresentation;
 
+/**
+ * AJAX controller for loading additional popup content (metadata, relationships)
+ * on demand when a user clicks a graph node.
+ *
+ * Access control note: item data is retrieved through the Omeka API which
+ * enforces visibility rules based on the current user's permissions. Only
+ * public items are returned for unauthenticated requests.
+ */
 class AjaxController extends AbstractActionController
 {
-    private function escapeHtml($s)
+    /** Labels to exclude from metadata display. */
+    private const EXCLUDED_LABELS = ['originalId', 'Original ID'];
+
+    /**
+     * Escape a string for safe HTML output.
+     *
+     * @param mixed $s
+     * @return string
+     */
+    private function escapeHtml($s): string
     {
         return htmlspecialchars((string) $s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
     }
 
-
-    public function popupExtraAction()
+    /**
+     * Return popup HTML (metadata and/or relationships) for a single item.
+     *
+     * Query params:
+     *   - id (int): item ID
+     *   - metadata (bool): include metadata HTML
+     *   - relationships (bool): include relationships HTML
+     *
+     * @return JsonModel
+     */
+    public function popupExtraAction(): JsonModel
     {
-
-        $id        = (int) $this->params()->fromQuery('id', 0);
-        $wantMeta  = (bool) $this->params()->fromQuery('metadata', false);
-        $wantRel   = (bool) $this->params()->fromQuery('relationships', false);
+        $id       = (int) $this->params()->fromQuery('id', 0);
+        $wantMeta = (bool) $this->params()->fromQuery('metadata', false);
+        $wantRel  = (bool) $this->params()->fromQuery('relationships', false);
 
         if (!$id) {
             return new JsonModel(['ok' => false]);
         }
 
-        $serviceManager  = $this->getEvent()->getApplication()->getServiceManager();
-        $api = $serviceManager->get('Omeka\ApiManager');
+        $serviceManager = $this->getEvent()->getApplication()->getServiceManager();
+        $api    = $serviceManager->get('Omeka\ApiManager');
+        $logger = $serviceManager->get('Omeka\Logger');
 
         try {
             $item = $api->read('items', $id)->getContent();
         } catch (\Throwable $e) {
+            $logger->err(sprintf('NodeGraph: failed to read item #%d: %s', $id, $e->getMessage()));
             return new JsonModel(['ok' => false]);
         }
 
-        // Metadata: all values except media and original id
+        $metadataHtml      = $wantMeta ? $this->buildMetadataHtml($item, $serviceManager) : '';
+        $relationshipsHtml = $wantRel ? $this->buildRelationshipsHtml($item, $api, $logger) : '';
+
+        return new JsonModel([
+            'ok'   => true,
+            'html' => $metadataHtml . $relationshipsHtml,
+        ]);
+    }
+
+    /**
+     * Build HTML for all metadata values of an item.
+     *
+     * @param ItemRepresentation $item
+     * @param \Laminas\ServiceManager\ServiceLocatorInterface $serviceManager
+     * @return string
+     */
+    private function buildMetadataHtml(ItemRepresentation $item, $serviceManager): string
+    {
+        $htmlPurifier = $serviceManager->get('Omeka\HtmlPurifier');
         $metadataHtml = '';
-        if ($wantMeta) {
-            $itemValues = $item->values();
+        $itemValues   = $item->values();
 
-            foreach ($itemValues as $term => $propData) {
+        foreach ($itemValues as $term => $propData) {
+            $propertyData = null;
+            $valueDatas   = [];
 
-                $propertyData = null;
-                $valueDatas = [];
+            if (is_array($propData) && array_key_exists('values', $propData)) {
+                $valueDatas = is_array($propData['values']) ? $propData['values'] : [];
+                if (isset($propData['property']) && $propData['property'] instanceof PropertyRepresentation) {
+                    $propertyData = $propData['property'];
+                }
+            } else {
+                continue;
+            }
 
-                if (is_array($propData) && array_key_exists('values', $propData)) {
-                    $valueDatas = is_array($propData['values']) ? $propData['values'] : [];
-                    if (isset($propData['property']) && $propData['property'] instanceof PropertyRepresentation) {
-                        $propertyData = $propData['property'];
-                    }
-                } else {
+            $label = isset($propData['alternate_label'])
+                ? $propData['alternate_label']
+                : ($propertyData instanceof PropertyRepresentation
+                    ? $propertyData->label()
+                    : preg_replace('~^.+:~', '', (string) $term));
+
+            $valueLines = [];
+            foreach ($valueDatas as $valueData) {
+                $type = $valueData->type();
+
+                if ($type === 'resource:media') {
                     continue;
                 }
 
-                // Get label, use alternate label if available
-                $label = isset($propData['alternate_label']) ? $propData['alternate_label'] : ($propertyData instanceof PropertyRepresentation ? $propertyData->label() : preg_replace('~^.+:~', '', (string) $term));
-
-                $valueLines = [];
-                foreach ($valueDatas as $valueData) {
-
-                    // Skip resource links to media
-                    $type = $valueData->type();
-                    if ($type === 'resource:media') {
+                if ($type === 'resource' || $type === 'resource:item') {
+                    $vr = $valueData->valueResource();
+                    if (!$vr instanceof ItemRepresentation) {
                         continue;
                     }
-
-                    // Deal with link to another item
-                    if ($type === 'resource' || $type === 'resource:item') {
-                        $vr = $valueData->valueResource();
-                        if (!$vr instanceof ItemRepresentation) {
-                            continue;
-                        }
-                        $title = $vr->displayTitle();
-                        $url   = $vr->siteUrl('omaa');
-                        $valueLines[] = '<a href="' . $url . '" target="_blank" rel="noopener">' . $this->escapeHtml($title) . '</a>';
-                        continue;
-                    }
-
-
-                    $text = (string) $valueData->value();
-                    if ($text === '' || $label == 'originalId' || trim($label) == 'Original ID') {
-                        continue;
-                    }
-
-                    //  Deal with html. no escape
-                    if ($type == 'html') {
-                        $valueLines[] = $text;
-                        continue;
-                    }
-
-                    // Link url values
-                    $rendered = filter_var($text, FILTER_VALIDATE_URL)
-                        ? '<a href="' . $this->escapeHtml($text) . '" target="_blank" rel="noopener">' . $this->escapeHtml($text) . '</a>'
-                        : $this->escapeHtml($text);
-                    $valueLines[] = $rendered;
+                    $title = $vr->displayTitle();
+                    $url   = $vr>url();
+                    $valueLines[] = '<a href="' . $this->escapeHtml($url) . '" target="_blank" rel="noopener">'
+                        . $this->escapeHtml($title) . '</a>';
+                    continue;
                 }
 
-                if ($valueLines) {
-                    $metadataHtml .= '<p style="font-size:10px"><strong>'
-                        . $this->escapeHtml(($label)) . ':</strong><br>' . implode('<br>', $valueLines) . '</p>';
+                $text = (string) $valueData->value();
+                if ($text === '' || in_array(trim($label), self::EXCLUDED_LABELS, true)) {
+                    continue;
                 }
+
+                // Sanitize HTML values through Omeka's HTML purifier
+                if ($type === 'html') {
+                    $valueLines[] = $htmlPurifier->purify($text);
+                    continue;
+                }
+
+                $rendered = filter_var($text, FILTER_VALIDATE_URL)
+                    ? '<a href="' . $this->escapeHtml($text) . '" target="_blank" rel="noopener">'
+                        . $this->escapeHtml($text) . '</a>'
+                    : $this->escapeHtml($text);
+                $valueLines[] = $rendered;
+            }
+
+            if ($valueLines) {
+                $metadataHtml .= '<p style="font-size:10px"><strong>'
+                    . $this->escapeHtml($label) . ':</strong><br>'
+                    . implode('<br>', $valueLines) . '</p>';
             }
         }
 
-        //Relationships: find ALL items that link to this item (any property) via API query
-        $relationshipsHtml = '';
-        if ($wantRel) {
-            try {
-                $relatedItems = $api->search('items', [
-                    'property' => [[
-                        'joiner'   => 'and',
-                        'property' => 0,        // any property
-                        'type'     => 'res',
-                        'text'     => $item->id(),
-                    ]],
-                    'per_page'  => 999,
-                    'page'      => 1,
-                    'is_public' => 1,
-                ])->getContent();
+        return $metadataHtml;
+    }
 
-                $links = [];
-                $seen  = [];
+    /**
+     * Build HTML for items that link to the given item.
+     *
+     * @param ItemRepresentation $item
+     * @param \Omeka\Api\Manager $api
+     * @param \Laminas\Log\Logger $logger
+     * @return string
+     */
+    private function buildRelationshipsHtml(ItemRepresentation $item, $api, $logger): string
+    {
+        try {
+            $relatedItems = $api->search('items', [
+                'property' => [[
+                    'joiner'   => 'and',
+                    'property' => 0,
+                    'type'     => 'res',
+                    'text'     => $item->id(),
+                ]],
+                'per_page'  => 999,
+                'page'      => 1,
+                'is_public' => 1,
+            ])->getContent();
 
-                foreach ($relatedItems as $relatedItem) {
-                    if (!$relatedItem instanceof ItemRepresentation) continue;
-                    $relatedItemID = $relatedItem->id();
-                    if ($relatedItemID === $item->id() || isset($seen[$relatedItemID])) continue;
-                    $seen[$relatedItemID] = true;
+            $links = [];
+            $seen  = [];
 
-                    $relatedItemTitle = $relatedItem->displayTitle();
-
-                    $relatedItemUrl = (string) $relatedItem->siteUrl('omaa');
-
-                    $links[] = $relatedItemUrl
-                        ? '<a href="' . $this->escapeHtml($relatedItemUrl) . '" target="_blank" rel="noopener">' . $this->escapeHtml($relatedItemTitle) . '</a>'
-                        : $this->escapeHtml($relatedItemTitle);
+            foreach ($relatedItems as $relatedItem) {
+                if (!$relatedItem instanceof ItemRepresentation) {
+                    continue;
                 }
-
-                if ($links) {
-                    $relationshipsHtml = '<p style="font-size:10px"><strong>'
-                        . $this->escapeHtml('Related items') . ':</strong><br>' . implode('<br>', $links) . '</p>';
+                $relatedItemID = $relatedItem->id();
+                if ($relatedItemID === $item->id() || isset($seen[$relatedItemID])) {
+                    continue;
                 }
-            } catch (\Throwable $ignored) {
+                $seen[$relatedItemID] = true;
+
+                $relatedItemTitle = $relatedItem->displayTitle();
+                $relatedItemUrl   = (string) $relatedItem>url();
+
+                $links[] = $relatedItemUrl
+                    ? '<a href="' . $this->escapeHtml($relatedItemUrl) . '" target="_blank" rel="noopener">'
+                        . $this->escapeHtml($relatedItemTitle) . '</a>'
+                    : $this->escapeHtml($relatedItemTitle);
             }
+
+            if ($links) {
+                return '<p style="font-size:10px"><strong>'
+                    . $this->escapeHtml('Related items') . ':</strong><br>'
+                    . implode('<br>', $links) . '</p>';
+            }
+        } catch (\Throwable $e) {
+            $logger->err(sprintf(
+                'NodeGraph: failed to load relationships for item #%d: %s',
+                $item->id(),
+                $e->getMessage(),
+            ));
         }
 
-        return new JsonModel([
-            'ok'                => true,
-            'html'      => $metadataHtml . $relationshipsHtml,
-        ]);
+        return '';
     }
 }

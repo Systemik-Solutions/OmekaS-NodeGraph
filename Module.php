@@ -2,48 +2,46 @@
 
 namespace NodeGraph;
 
-use Omeka\Module\AbstractModule;
-use Laminas\Mvc\MvcEvent;
-use Laminas\EventManager\SharedEventManagerInterface;
-use Omeka\Entity\SitePage;
-use Omeka\Api\Representation\SitePageRepresentation;
 use Laminas\EventManager\Event;
+use Laminas\EventManager\SharedEventManagerInterface;
+use Laminas\ServiceManager\ServiceLocatorInterface;
+use Omeka\Api\Representation\SitePageRepresentation;
+use Omeka\Entity\SitePage;
+use Omeka\Module\AbstractModule;
 
-
+/**
+ * Node Graph module for Omeka S.
+ *
+ * Provides interactive sigma.js-based graph visualizations as site page blocks.
+ */
 class Module extends AbstractModule
 {
-
+    /**
+     * @return array
+     */
     public function getConfig(): array
     {
         return include __DIR__ . '/config/module.config.php';
     }
 
-
-    public function onBootstrap(MvcEvent $event): void
-    {
-        // IMPORTANT: ensure base class runs (this is what normally calls attachListeners()).
-        parent::onBootstrap($event);
-
-        $services = $event->getApplication()->getServiceManager();
-        $viewHelperManager = $services->get('ViewHelperManager');
-        $headScript = $viewHelperManager->get('headScript');
-        $headLink = $viewHelperManager->get('headLink');
-
-        //Sigma js
-        $headScript
-            ->appendFile('https://cdnjs.cloudflare.com/ajax/libs/graphology/0.24.0/graphology.umd.min.js')
-            ->appendFile('https://cdn.jsdelivr.net/npm/graphology-library@0.8.0/dist/graphology-library.min.js')
-            ->appendFile('https://cdnjs.cloudflare.com/ajax/libs/sigma.js/3.0.2/sigma.min.js');
-    }
-
+    /**
+     * Attach event listeners for cache invalidation on page save.
+     *
+     * @param SharedEventManagerInterface $sem
+     * @return void
+     */
     public function attachListeners(SharedEventManagerInterface $sem): void
     {
-        // After API save (create/update) of site pages, queue builds.
         $sem->attach('*', 'api.create.post', [$this, 'onPageSaved']);
         $sem->attach('*', 'api.update.post', [$this, 'onPageSaved']);
     }
 
-
+    /**
+     * Handle page save events to rebuild graph cache when needed.
+     *
+     * @param Event $event
+     * @return void
+     */
     public function onPageSaved(Event $event): void
     {
         $services = $this->getServiceLocator();
@@ -64,7 +62,6 @@ class Module extends AbstractModule
             }
 
             foreach ($page->blocks() as $blockRep) {
-                // Only Node graph block
                 if ($blockRep->layout() !== 'Node Graph') {
                     continue;
                 }
@@ -75,17 +72,14 @@ class Module extends AbstractModule
                     continue;
                 }
 
-                // If caching is on, compute hash of inputs that affect output
                 $hash    = sha1(json_encode($data));
                 $blockId = (int) $blockRep->id();
 
-                // If cache already exist, delete and rebuild
                 $conn->executeStatement(
                     'DELETE FROM nodegraph_cache WHERE block_id = ? AND hash = ?',
-                    [$blockId, $hash]
+                    [$blockId, $hash],
                 );
 
-                // Queue job to (re)build the cache
                 $dispatcher->dispatch(\NodeGraph\Job\BuildGraph::class, [
                     'block_id' => $blockId,
                     'hash'     => $hash,
@@ -95,22 +89,52 @@ class Module extends AbstractModule
         }
     }
 
-    public function install($serviceLocator)
+    /**
+     * Create the module's database schema.
+     *
+     * @param ServiceLocatorInterface $serviceLocator
+     * @return void
+     */
+    public function install(ServiceLocatorInterface $serviceLocator): void
     {
         $conn = $serviceLocator->get('Omeka\Connection');
         $conn->executeStatement('
-        CREATE TABLE IF NOT EXISTS nodegraph_cache (
-          block_id INT NOT NULL PRIMARY KEY,
-          hash     VARCHAR(40) NOT NULL,
-          payload  LONGTEXT NOT NULL,
-          updated  DATETIME NOT NULL
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-    ');
+            CREATE TABLE IF NOT EXISTS nodegraph_cache (
+              block_id INT NOT NULL PRIMARY KEY,
+              hash     VARCHAR(40) NOT NULL,
+              payload  LONGTEXT NOT NULL,
+              updated  DATETIME NOT NULL
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        ');
     }
 
-    public function uninstall($serviceLocator)
+    /**
+     * Remove the module's database schema.
+     *
+     * @param ServiceLocatorInterface $serviceLocator
+     * @return void
+     */
+    public function uninstall(ServiceLocatorInterface $serviceLocator): void
     {
         $conn = $serviceLocator->get('Omeka\Connection');
         $conn->executeStatement('DROP TABLE IF EXISTS nodegraph_cache;');
+    }
+
+    /**
+     * Handle version upgrades with any required schema migrations.
+     *
+     * @param string $oldVersion
+     * @param string $newVersion
+     * @param ServiceLocatorInterface $serviceLocator
+     * @return void
+     */
+    public function upgrade($oldVersion, $newVersion, ServiceLocatorInterface $serviceLocator): void
+    {
+        // Future migrations go here, keyed by version comparison.
+        // Example:
+        // if (version_compare($oldVersion, '1.1.0', '<')) {
+        //     $conn = $serviceLocator->get('Omeka\Connection');
+        //     $conn->executeStatement('ALTER TABLE ...');
+        // }
     }
 }

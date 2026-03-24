@@ -14,6 +14,7 @@ experience.
 
 - Download a ZIP package from one of the [releases](https://github.com/Systemik-Solutions/OmekaS-NodeGraph/releases).
 - Extract the ZIP into the modules directory of your Omeka S installation.
+- Rename the folder to 'NodeGraph'
 - In the Omeka S admin panel, go to Modules and click Install next to “Node Graph”.
 
 For more details, refer to the [Omeka S module installation guide](https://omeka.org/s/docs/user-manual/modules/).

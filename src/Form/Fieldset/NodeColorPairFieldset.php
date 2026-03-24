@@ -9,6 +9,9 @@ use Omeka\Form\Element\ResourceClassSelect;
 use Omeka\Form\Element\ResourceTemplateSelect;
 use Omeka\Form\Element\PropertySelect;
 
+/**
+ * Fieldset representing a single node color mapping row (target selector + color picker).
+ */
 class NodeColorPairFieldset extends Fieldset
 {
     public function init(): void

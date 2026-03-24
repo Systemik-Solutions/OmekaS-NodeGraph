@@ -5,6 +5,9 @@ use Laminas\Form\Fieldset;
 use Laminas\Form\Element\Select;
 use Omeka\Form\Element\PropertySelect;
 
+/**
+ * Fieldset for configuring the node grouping strategy (resource class, template, or property).
+ */
 class GroupByFieldset extends Fieldset
 {
     public function init(): void

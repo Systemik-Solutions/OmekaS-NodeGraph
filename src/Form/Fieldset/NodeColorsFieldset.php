@@ -5,6 +5,9 @@ namespace NodeGraph\Form\Fieldset;
 use Laminas\Form\Fieldset;
 use Laminas\Form\Element\Collection;
 
+/**
+ * Fieldset containing a dynamic collection of node color pair rows.
+ */
 class NodeColorsFieldset extends Fieldset
 {
     public function init(): void

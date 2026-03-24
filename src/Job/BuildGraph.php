@@ -2,13 +2,23 @@
 
 namespace NodeGraph\Job;
 
-require_once dirname(__DIR__, 2) . '/functions.php';
-
-use Omeka\Job\AbstractJob;
+use NodeGraph\Service\GraphHelper;
 use Omeka\Api\Representation\SitePageBlockRepresentation;
+use Omeka\Job\AbstractJob;
 
+/**
+ * Background job that pre-computes graph data and stores it in the cache table.
+ *
+ * Dispatched when a page containing a Node Graph block with caching enabled
+ * is saved.
+ */
 class BuildGraph extends AbstractJob
 {
+    /**
+     * Build the graph payload for a single block and upsert it into the cache.
+     *
+     * @return void
+     */
     public function perform(): void
     {
         $services = $this->getServiceLocator();
@@ -18,7 +28,6 @@ class BuildGraph extends AbstractJob
         $pageId   = (int) $this->getArg('page_id');
         $hash     = (string) $this->getArg('hash');
 
-        // Read the page, then pick the block by id
         $page = $api->read('site_pages', $pageId)->getContent();
 
         /** @var SitePageBlockRepresentation|null $blockRep */
@@ -35,19 +44,18 @@ class BuildGraph extends AbstractJob
             return;
         }
 
-        $data = $blockRep->data(); // array with your block inputs
+        $data = $blockRep->data();
 
-        $query  = $data['query'] ?? '';
-        $group  = $data['group_by_control'] ?? [];
-        $colors = ($data['node_colors']['rows'] ?? []);
-        $rels   = (array) ($data['relationships_properties'] ?? []);
+        $query   = $data['query'] ?? '';
+        $group   = $data['group_by_control'] ?? [];
+        $colors  = $data['node_colors']['rows'] ?? [];
+        $rels    = (array) ($data['relationships_properties'] ?? []);
         $exclude = !empty($data['exclude_without_relationships']);
-        $popup  = (array) ($data['popup_content'] ?? []);
+        $popup   = (array) ($data['popup_content'] ?? []);
 
-
-        parse_str((string)$query, $q);
+        parse_str((string) $query, $q);
         $items      = $api->search('items', $q)->getContent();
-        $sigmaGraph = sigmaGenerateGraph($items, [
+        $sigmaGraph = GraphHelper::generateGraph($items, [
             'groupBy'    => $group['group-by-select'] ?? 'resource_class',
             'propTerm'   => ($group['group-by-select'] ?? null) === 'property_value'
                 ? ($group['group-by-property-select'] ?? null) : null,
@@ -59,13 +67,12 @@ class BuildGraph extends AbstractJob
             'sizeMax' => 18,
         ]);
 
-        $conn     = $services->get('Omeka\Connection');
-        // Upsert cache row
+        $conn = $services->get('Omeka\Connection');
         $conn->executeStatement(
             'INSERT INTO nodegraph_cache (block_id, hash, payload, updated)
              VALUES (?, ?, ?, NOW())
              ON DUPLICATE KEY UPDATE hash = VALUES(hash), payload = VALUES(payload), updated = NOW()',
-            [$blockId, $hash, json_encode($sigmaGraph, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)]
+            [$blockId, $hash, json_encode($sigmaGraph, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE)],
         );
     }
 }

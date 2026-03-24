@@ -1,46 +1,45 @@
 <?php
-require_once dirname(__DIR__, 3) . '/functions.php';
+use NodeGraph\Service\GraphHelper;
+
 $this->headLink()->appendStylesheet($this->assetUrl('css/nodegraph.css', 'NodeGraph'));
 
-
 $ajaxUrl = $this->url(
-    'node-graph-ajax',               // <-- note the "site/" prefix
-    ['action' => 'popup-extra'],          // or your action, e.g. 'get-metadata'
-    ['force_canonical' => true]
+    'node-graph-ajax',
+    ['action' => 'popup-extra'],
+    ['force_canonical' => true],
 );
 
-
 if (!isset($sigmaGraph)) {
-
     if (!isset($query)) {
-        echo "No item found";
+        echo '<p>' . $this->escapeHtml('No item found') . '</p>';
+        return;
     }
 
-    // get items
     parse_str($query, $queryArray);
     $items = $this->api()->search('items', $queryArray)->getContent();
 
-    if (count($items) == 0) {
-        echo "No item found";
+    if (count($items) === 0) {
+        echo '<p>' . $this->escapeHtml('No item found') . '</p>';
+        return;
     }
 
     $groupBy = $group_by_control['group-by-select'] ?? 'resource_class';
     $propTerm = $groupBy === 'property_value' ? ($group_by_control['group-by-property-select'] ?? null) : null;
 
-    $sigmaGraph = sigmaGenerateGraph($items, [
-        'groupBy'                   => $groupBy,
-        'propTerm'                  => $propTerm,
-        'nodeColors'                => $node_colors,
-        'relationshipProperties'    => (array) ($relationships_properties ?? []),
-        'excludeWithoutRelationships' => !empty($exclude_without_relationships),
-        'popupConfig' => $popup_config,
-        'sizeMin'                   => 3,
-        'sizeMax'                   => 18,
+    $sigmaGraph = GraphHelper::generateGraph($items, [
+        'groupBy'                       => $groupBy,
+        'propTerm'                      => $propTerm,
+        'nodeColors'                    => $node_colors,
+        'relationshipProperties'        => (array) ($relationships_properties ?? []),
+        'excludeWithoutRelationships'   => !empty($exclude_without_relationships),
+        'popupConfig'                   => $popup_config,
+        'sizeMin'                       => 3,
+        'sizeMax'                       => 18,
     ]);
 }
 ?>
 
-<div class="network-view" style='width: <?php echo $width ?> ;height:  <?php echo $height ?> ;'>
+<div class="network-view" style="width: <?= $this->escapeHtmlAttr($width) ?>; height: <?= $this->escapeHtmlAttr($height) ?>;">
     <div id="network-container">
         <div id="legendDiv"></div>
         <div id="network-tooltip"></div>
@@ -77,7 +76,6 @@ if (!isset($sigmaGraph)) {
             originalColor: n.originalColor || n.color,
             link: n.link || null,
             popupContent: n.popupContent || '',
-            image: "https://upload.wikimedia.org/wikipedia/commons/thumb/5/53/Sheba1.JPG/800px-Sheba1.JPG"
         });
     });
 

@@ -2,35 +2,43 @@
 
 namespace NodeGraph\Site\BlockLayout;
 
-
-use Omeka\Api\Representation\SitePageBlockRepresentation;
-use Omeka\Site\BlockLayout\AbstractBlockLayout;
-use Laminas\View\Renderer\PhpRenderer;
-use Laminas\Form\Form;
-use Omeka\Form\Element\Query as QueryElement;
+use Laminas\Form\Element;
+use Laminas\Form\Element\MultiCheckbox;
 use Laminas\Form\Factory as FormFactory;
+use Laminas\Form\Form;
+use Laminas\View\Renderer\PhpRenderer;
 use NodeGraph\Form\Fieldset\GroupByFieldset;
 use NodeGraph\Form\Fieldset\NodeColorsFieldset;
+use Omeka\Api\Representation\SitePageBlockRepresentation;
+use Omeka\Form\Element\Query as QueryElement;
+use Omeka\Site\BlockLayout\AbstractBlockLayout;
 
-use Omeka\Form\Element\PropertySelect;
-use Laminas\Form\Element;
-
-use Laminas\Form\Element\MultiCheckbox;
-
-
+/**
+ * Block layout for rendering an interactive node graph on an Omeka S site page.
+ */
 class NodeGraphBlock extends AbstractBlockLayout
 {
-    public function getLabel()
+    /**
+     * @return string
+     */
+    public function getLabel(): string
     {
         return 'Node Graph';
     }
 
-
+    /**
+     * Build the admin-side configuration form for the block.
+     *
+     * @param PhpRenderer $view
+     * @param mixed $site
+     * @param mixed $page
+     * @param mixed $block
+     * @return string
+     */
     public function form($view, $site, $page = null, $block = null)
     {
         $services = $view->getHelperPluginManager()->getServiceLocator();
 
-        // Query Filter
         $form = new Form('node-graph');
         $form->add([
             'type' => QueryElement::class,
@@ -42,28 +50,25 @@ class NodeGraphBlock extends AbstractBlockLayout
             ],
         ]);
 
-        $formElementManager      = $services->get('FormElementManager');
+        $formElementManager = $services->get('FormElementManager');
 
-        // Group by Filter
         $groupByFieldSet = $formElementManager->get(GroupByFieldset::class);
         $groupByFieldSet->setFormFactory(new FormFactory($formElementManager));
         $groupByFieldSet->setName('o:block[__blockIndex__][o:data][group_by_control]');
         $form->add($groupByFieldSet);
 
-        // Node Colors
         $nodeColorsFs = $formElementManager->get(NodeColorsFieldset::class);
         $nodeColorsFs->setFormFactory(new FormFactory($formElementManager));
         $nodeColorsFs->setName('o:block[__blockIndex__][o:data][node_colors]');
         $form->add($nodeColorsFs);
 
-        // Selection of relationships (by property) — multiple PropertySelect
         $relProps = $formElementManager->get(\Omeka\Form\Element\PropertySelect::class);
         $relProps->setName('o:block[__blockIndex__][o:data][relationships_properties]');
         $relProps->setOptions([
             'label'              => $view->translate('Selection of relationships (by property)'),
             'empty_option'       => '',
             'term_as_value'      => true,
-            'use_hidden_element' => true, // fine to keep
+            'use_hidden_element' => true,
         ]);
         $relProps->setAttributes([
             'multiple'         => true,
@@ -72,7 +77,6 @@ class NodeGraphBlock extends AbstractBlockLayout
         ]);
         $form->add($relProps);
 
-        // Exclude items without relationships — checkbox (default unchecked)
         $form->add([
             'type' => Element\Checkbox::class,
             'name' => 'o:block[__blockIndex__][o:data][exclude_without_relationships]',
@@ -84,7 +88,6 @@ class NodeGraphBlock extends AbstractBlockLayout
             ],
         ]);
 
-        // Cache result - checkbox (default unchecked)
         $form->add([
             'type' => Element\Checkbox::class,
             'name' => 'o:block[__blockIndex__][o:data][cache_result]',
@@ -96,7 +99,6 @@ class NodeGraphBlock extends AbstractBlockLayout
             ],
         ]);
 
-        // Popup Content (multi-checkbox)
         $form->add([
             'type' => MultiCheckbox::class,
             'name' => 'o:block[__blockIndex__][o:data][popup_content]',
@@ -112,7 +114,6 @@ class NodeGraphBlock extends AbstractBlockLayout
             'attributes' => [],
         ]);
 
-        // Graph width / height (CSS values)
         $form->add([
             'type' => Element\Text::class,
             'name' => 'o:block[__blockIndex__][o:data][graph_width]',
@@ -129,9 +130,8 @@ class NodeGraphBlock extends AbstractBlockLayout
             ],
         ]);
 
-        // Preset form data
         $groupByData = (array) ($block ? $block->dataValue('group_by_control') : []);
-        $nodeColors = (array) ($block ? $block->dataValue('node_colors') : []);
+        $nodeColors  = (array) ($block ? $block->dataValue('node_colors') : []);
         $form->setData([
             'o:block[__blockIndex__][o:data][query]'            => $block ? ($block->dataValue('query') ?? '') : '',
             'o:block[__blockIndex__][o:data][group_by_control]' => [
@@ -141,17 +141,15 @@ class NodeGraphBlock extends AbstractBlockLayout
             'o:block[__blockIndex__][o:data][node_colors]' => [
                 'rows' => $nodeColors['rows'] ?? [],
             ],
-            'o:block[__blockIndex__][o:data][relationships_properties]'       => $block ? (array) ($block->dataValue('relationships_properties') ?? []) : [],
-            'o:block[__blockIndex__][o:data][exclude_without_relationships]'  => $block ? ($block->dataValue('exclude_without_relationships') ?? '0') : '0',
-            'o:block[__blockIndex__][o:data][cache_result]' =>  $block ? ($block->dataValue('cache_result') ?? '0') : '0',
+            'o:block[__blockIndex__][o:data][relationships_properties]'      => $block ? (array) ($block->dataValue('relationships_properties') ?? []) : [],
+            'o:block[__blockIndex__][o:data][exclude_without_relationships]' => $block ? ($block->dataValue('exclude_without_relationships') ?? '0') : '0',
+            'o:block[__blockIndex__][o:data][cache_result]'  => $block ? ($block->dataValue('cache_result') ?? '0') : '0',
             'o:block[__blockIndex__][o:data][popup_content]' => $block
-                ? (array) ($block->dataValue('popup_content') ?? ['title']) // default: Title checked
+                ? (array) ($block->dataValue('popup_content') ?? ['title'])
                 : ['title'],
-
             'o:block[__blockIndex__][o:data][graph_width]'  => $block
-                ? ($block->dataValue('graph_width')  ?? '100%')
+                ? ($block->dataValue('graph_width') ?? '100%')
                 : '100%',
-
             'o:block[__blockIndex__][o:data][graph_height]' => $block
                 ? ($block->dataValue('graph_height') ?? '600px')
                 : '600px',
@@ -164,8 +162,23 @@ class NodeGraphBlock extends AbstractBlockLayout
             . $view->partial('node-graph/node-relationships');
     }
 
-    public function render(PhpRenderer $view, SitePageBlockRepresentation $block)
+    /**
+     * Render the node graph block on the public site.
+     *
+     * Loads required JavaScript libraries only when this block is present on
+     * the page, avoiding unnecessary script loading on every page.
+     *
+     * @param PhpRenderer $view
+     * @param SitePageBlockRepresentation $block
+     * @return string
+     */
+    public function render(PhpRenderer $view, SitePageBlockRepresentation $block): string
     {
+        // Load JS libraries only when the block is actually rendered
+        $view->headScript()
+            ->appendFile('https://cdnjs.cloudflare.com/ajax/libs/graphology/0.24.0/graphology.umd.min.js')
+            ->appendFile('https://cdn.jsdelivr.net/npm/graphology-library@0.8.0/dist/graphology-library.min.js')
+            ->appendFile('https://cdnjs.cloudflare.com/ajax/libs/sigma.js/3.0.2/sigma.min.js');
 
         $services = $view->getHelperPluginManager()->getServiceLocator();
         $data = $block->data();
@@ -184,20 +197,19 @@ class NodeGraphBlock extends AbstractBlockLayout
             ]);
         }
 
-        $conn     = $services->get('Omeka\Connection');
+        $conn = $services->get('Omeka\Connection');
         $hash = sha1(json_encode($data));
 
-        $row  = $conn->fetchAssociative(
+        $row = $conn->fetchAssociative(
             'SELECT payload FROM nodegraph_cache WHERE block_id = ? AND hash = ?',
-            [$block->id(), $hash]
+            [$block->id(), $hash],
         );
 
         if ($row) {
-            // Cached
             $sigmaGraph = json_decode($row['payload'], true) ?: ['nodes' => [], 'edges' => [], 'legendMap' => []];
             return $view->partial('common/block/NodeGraphView', [
                 'sigmaGraph' => $sigmaGraph,
-                'width'  => $data['graph_width']  ?? '100%',
+                'width'  => $data['graph_width'] ?? '100%',
                 'height' => $data['graph_height'] ?? '600px',
                 'popup_config' => $block->dataValue('popup_content'),
             ]);
