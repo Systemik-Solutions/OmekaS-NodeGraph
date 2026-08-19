@@ -16,6 +16,8 @@ return [
             \NodeGraph\Form\Fieldset\GroupByFieldset::class => \Laminas\ServiceManager\Factory\InvokableFactory::class,
             \NodeGraph\Form\Fieldset\NodeColorsFieldset::class     => \Laminas\ServiceManager\Factory\InvokableFactory::class,
             \NodeGraph\Form\Fieldset\NodeColorPairFieldset::class  => \Laminas\ServiceManager\Factory\InvokableFactory::class,
+            \NodeGraph\Form\Fieldset\NodeIconsFieldset::class      => \Laminas\ServiceManager\Factory\InvokableFactory::class,
+            \NodeGraph\Form\Fieldset\NodeIconPairFieldset::class   => \Laminas\ServiceManager\Factory\InvokableFactory::class,
         ],
     ],
     'router' => [
@@ -40,4 +42,3 @@ return [
         ],
     ],
 ];
-

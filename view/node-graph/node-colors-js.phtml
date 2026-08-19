@@ -1,8 +1,8 @@
 <script>
     (function($) {
         function wire(scope) {
-            // For each Node Colors collection fieldset…
-            $(scope).find('fieldset.node_graph_node_colors').each(function() {
+            // Node Colors and Node Icons use the same group-target controls.
+            $(scope).find('fieldset.node_graph_node_colors, fieldset.node_graph_node_icons').each(function() {
                 const $coll = $(this); // rows collection (fieldset)
                 const $block = $coll.closest('.block'); // scope to same block
                 const $group = $block.find('select.node_graph_group_by_select').first();
@@ -12,7 +12,7 @@
                 function getTargets($row) {
                     const $rc = $row.find('.ngc--rc'); // resource class select
                     const $rt = $row.find('.ngc--rt'); // resource template select
-                    const $pv = $row.find('.ngc--pv'); // property select (chosen)
+                    const $pv = $row.find('.ngc--pv'); // exact property value text input
                     return {
                         rcSel: $rc,
                         rcField: $rc.closest('.field'),
@@ -42,14 +42,6 @@
                 function showField($sel, $field) {
                     if (!$sel.length || !$field.length) return;
                     $field.show();
-                    // init chosen only for property select if present
-                    if ($sel.hasClass('ngc--pv') && $.fn.chosen && !$sel.data('chosen')) {
-                        $sel.chosen({
-                            include_group_label_in_selected: true,
-                            width: '100%'
-                        });
-                        $sel.data('chosen', 1);
-                    }
                 }
 
                 function showForType($row, type) {
@@ -79,7 +71,10 @@
 
                 // Initial state + react to Group By changes
                 applyAll();
-                $group.off('.ngcGroup').on('change.ngcGroup', applyAll);
+                const groupEvent = $coll.hasClass('node_graph_node_icons')
+                    ? '.ngiGroup'
+                    : '.ngcGroup';
+                $group.off(groupEvent).on('change' + groupEvent, applyAll);
 
                 //  remove handler
                 $coll.off('click.ngcRemove').on('click.ngcRemove', '.ngc-remove', function(e) {
@@ -111,7 +106,9 @@
                         rawTemplate.replace(/__blockIndex__/g, String(blockIdx)) :
                         rawTemplate;
 
-                    const $add = $('<button type="button" class="button ngc-add" style="margin-top:.5rem;">+ Add color</button>');
+                    const isIcons = $coll.hasClass('node_graph_node_icons');
+                    const addLabel = isIcons ? '+ Add icon' : '+ Add color';
+                    const $add = $('<button type="button" class="button ngc-add" style="margin-top:.5rem;"></button>').text(addLabel);
                     $coll.after($add);
 
                     $add.on('click', function() {

@@ -178,6 +178,40 @@ class GraphHelper
     }
 
     /**
+     * Build an icon map for the current grouping strategy.
+     *
+     * Unlike colors, icons are optional and are not generated for unmapped
+     * groups. Both absolute URLs and root-relative paths are retained.
+     *
+     * @param string $groupBy
+     * @param array $nodeIcons Raw node icon settings
+     * @return array<string, string> Map of group key to icon URL or path
+     */
+    public static function buildIconMap(string $groupBy, array $nodeIcons): array
+    {
+        $rows = self::normalizeRows($nodeIcons);
+        $map = [];
+
+        foreach ($rows as $row) {
+            $key = '';
+            if ($groupBy === 'resource_class') {
+                $key = (string) ($row['resource_class'] ?? '');
+            } elseif ($groupBy === 'resource_template') {
+                $key = (string) ($row['resource_template'] ?? '');
+            } elseif ($groupBy === 'property_value') {
+                $key = (string) ($row['property_value'] ?? '');
+            }
+
+            $icon = trim((string) ($row['icon'] ?? ''));
+            if ($key !== '' && $icon !== '') {
+                $map[$key] = $icon;
+            }
+        }
+
+        return $map;
+    }
+
+    /**
      * Get the best available thumbnail URL for an item.
      *
      * @param ItemRepresentation $item
@@ -212,7 +246,7 @@ class GraphHelper
             return htmlspecialchars((string) $s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
         };
 
-        $itemUrl = (string) $item>url();
+        $itemUrl = (string) $item->url();
 
         if (in_array('title', $popupConfig, true)) {
             $title = $e($item->displayTitle());
@@ -241,6 +275,7 @@ class GraphHelper
      *   - groupBy (string): 'resource_class'|'resource_template'|'property_value'
      *   - propTerm (?string): property term for property_value grouping
      *   - nodeColors (array): color configuration rows
+     *   - nodeIcons (array): icon configuration rows
      *   - relationshipProperties (array): property terms to follow for edges
      *   - excludeWithoutRelationships (bool): drop isolated nodes
      *   - popupConfig (array): popup sections to include
@@ -253,6 +288,7 @@ class GraphHelper
         $groupBy   = $opts['groupBy'] ?? 'resource_class';
         $propTerm  = $opts['propTerm'] ?? null;
         $colorsRaw = $opts['nodeColors'] ?? [];
+        $iconsRaw  = $opts['nodeIcons'] ?? [];
         $relProps  = array_values(array_filter($opts['relationshipProperties'] ?? []));
         $excludeIsolated = !empty($opts['excludeWithoutRelationships']);
         $sizeMin   = isset($opts['sizeMin']) ? (int) $opts['sizeMin'] : 3;
@@ -260,6 +296,7 @@ class GraphHelper
         $popupConfig = $opts['popupConfig'] ?? ['title'];
 
         $colorMap = self::buildColorMap($items, $groupBy, $propTerm, $colorsRaw);
+        $iconMap  = self::buildIconMap($groupBy, $iconsRaw);
 
         $itemById = [];
         foreach ($items as $it) {
@@ -268,7 +305,7 @@ class GraphHelper
             }
         }
 
-        $nodeResult  = self::buildNodes($itemById, $groupBy, $propTerm, $colorMap, $sizeMin, $popupConfig);
+        $nodeResult  = self::buildNodes($itemById, $groupBy, $propTerm, $colorMap, $iconMap, $sizeMin, $popupConfig);
         $nodes       = $nodeResult['nodes'];
         $groupLabels = $nodeResult['groupLabels'];
 
@@ -281,7 +318,7 @@ class GraphHelper
         }
 
         $nodes     = self::applyDegreeSizing($nodes, $degree, $sizeMin, $sizeMax);
-        $legendMap = self::buildLegendMap($nodes, $groupLabels, $colorMap);
+        $legendMap = self::buildLegendMap($nodes, $groupLabels, $colorMap, $iconMap);
 
         return [
             'nodes'     => array_values($nodes),
@@ -297,6 +334,7 @@ class GraphHelper
      * @param string $groupBy
      * @param string|null $propTerm
      * @param array<string, string> $colorMap
+     * @param array<string, string> $iconMap
      * @param int $sizeMin
      * @param array $popupConfig
      * @return array{nodes: array, groupLabels: array}
@@ -306,6 +344,7 @@ class GraphHelper
         string $groupBy,
         ?string $propTerm,
         array $colorMap,
+        array $iconMap,
         int $sizeMin,
         array $popupConfig
     ): array {
@@ -342,6 +381,7 @@ class GraphHelper
                 'color'         => $color,
                 'originalColor' => $color,
                 'groupKey'      => $key,
+                'icon'          => ($key !== '' && isset($iconMap[$key])) ? $iconMap[$key] : null,
                 'popupContent'  => self::buildPopupContent($item, $popupConfig),
                 'link'          => $item ? $item->url() : null,
             ];
@@ -508,9 +548,10 @@ class GraphHelper
      * @param array $nodes
      * @param array $groupLabels
      * @param array<string, string> $colorMap
-     * @return array<string, array{color: string}>
+     * @param array<string, string> $iconMap
+     * @return array<string, array{color: string, icon: ?string}>
      */
-    private static function buildLegendMap(array $nodes, array $groupLabels, array $colorMap): array
+    private static function buildLegendMap(array $nodes, array $groupLabels, array $colorMap, array $iconMap): array
     {
         $legendMap = [];
         foreach ($nodes as $n) {
@@ -520,6 +561,7 @@ class GraphHelper
             }
             $legendMap[$groupLabels[$key] ?? (string) $key] = [
                 'color' => $colorMap[$key] ?? self::colorFromKey($key),
+                'icon' => $iconMap[$key] ?? null,
             ];
         }
         return $legendMap;

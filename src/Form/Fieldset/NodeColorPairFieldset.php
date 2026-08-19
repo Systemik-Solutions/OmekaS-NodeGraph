@@ -7,7 +7,6 @@ use Laminas\Form\Element\Text;
 use Laminas\Form\Element\Button;
 use Omeka\Form\Element\ResourceClassSelect;
 use Omeka\Form\Element\ResourceTemplateSelect;
-use Omeka\Form\Element\PropertySelect;
 
 /**
  * Fieldset representing a single node color mapping row (target selector + color picker).
@@ -42,16 +41,16 @@ class NodeColorPairFieldset extends Fieldset
             ],
         ]);
 
-        // Target: property (term picker)
+        // Target: the actual value of the property selected in "Group by".
         $this->add([
-            'type' => PropertySelect::class,
+            'type' => Text::class,
             'name' => 'property_value',
             'options' => [
-                'label'              => 'Property value',
-                'empty_option'       => '',
+                'label' => 'Property value',
+                'info' => 'Enter the exact value used by items in this group.',
             ],
             'attributes' => [
-                'class' => 'ngc-target ngc--pv chosen-select',
+                'class' => 'ngc-target ngc--pv',
             ],
         ]);
 

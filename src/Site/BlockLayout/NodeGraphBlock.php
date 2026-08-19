@@ -9,6 +9,7 @@ use Laminas\Form\Form;
 use Laminas\View\Renderer\PhpRenderer;
 use NodeGraph\Form\Fieldset\GroupByFieldset;
 use NodeGraph\Form\Fieldset\NodeColorsFieldset;
+use NodeGraph\Form\Fieldset\NodeIconsFieldset;
 use Omeka\Api\Representation\SitePageBlockRepresentation;
 use Omeka\Form\Element\Query as QueryElement;
 use Omeka\Site\BlockLayout\AbstractBlockLayout;
@@ -61,6 +62,11 @@ class NodeGraphBlock extends AbstractBlockLayout
         $nodeColorsFs->setFormFactory(new FormFactory($formElementManager));
         $nodeColorsFs->setName('o:block[__blockIndex__][o:data][node_colors]');
         $form->add($nodeColorsFs);
+
+        $nodeIconsFs = $formElementManager->get(NodeIconsFieldset::class);
+        $nodeIconsFs->setFormFactory(new FormFactory($formElementManager));
+        $nodeIconsFs->setName('o:block[__blockIndex__][o:data][node_icons]');
+        $form->add($nodeIconsFs);
 
         $relProps = $formElementManager->get(\Omeka\Form\Element\PropertySelect::class);
         $relProps->setName('o:block[__blockIndex__][o:data][relationships_properties]');
@@ -132,6 +138,7 @@ class NodeGraphBlock extends AbstractBlockLayout
 
         $groupByData = (array) ($block ? $block->dataValue('group_by_control') : []);
         $nodeColors  = (array) ($block ? $block->dataValue('node_colors') : []);
+        $nodeIcons   = (array) ($block ? $block->dataValue('node_icons') : []);
         $form->setData([
             'o:block[__blockIndex__][o:data][query]'            => $block ? ($block->dataValue('query') ?? '') : '',
             'o:block[__blockIndex__][o:data][group_by_control]' => [
@@ -140,6 +147,9 @@ class NodeGraphBlock extends AbstractBlockLayout
             ],
             'o:block[__blockIndex__][o:data][node_colors]' => [
                 'rows' => $nodeColors['rows'] ?? [],
+            ],
+            'o:block[__blockIndex__][o:data][node_icons]' => [
+                'rows' => $nodeIcons['rows'] ?? [],
             ],
             'o:block[__blockIndex__][o:data][relationships_properties]'      => $block ? (array) ($block->dataValue('relationships_properties') ?? []) : [],
             'o:block[__blockIndex__][o:data][exclude_without_relationships]' => $block ? ($block->dataValue('exclude_without_relationships') ?? '0') : '0',
@@ -188,7 +198,8 @@ class NodeGraphBlock extends AbstractBlockLayout
             return $view->partial('common/block/NodeGraphView', [
                 'query' => $block->dataValue('query'),
                 'group_by_control' => $block->dataValue('group_by_control'),
-                'node_colors' => $block->dataValue('node_colors')['rows'],
+                'node_colors' => ((array) $block->dataValue('node_colors'))['rows'] ?? [],
+                'node_icons' => ((array) $block->dataValue('node_icons'))['rows'] ?? [],
                 'relationships_properties' => $block->dataValue('relationships_properties'),
                 'exclude_without_relationships' => $block->dataValue('exclude_without_relationships'),
                 'popup_config' => $block->dataValue('popup_content'),

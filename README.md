@@ -27,7 +27,10 @@ available:
 - Search Query: Specify an Omeka S search query to select items to include in the graph.
 - Group by: Choose from "Resource Class", "Resource Template", or "Property value" to group nodes. Nodes in different groups 
   will have distinct colors. If not specified, all nodes will share the same color.
-- Node colors: Select the node color for each group. If not specified, default colors will be used.
+- Node colors: Select the node color for each group. If not specified, default colors will be used. When grouping by property
+  value, enter the exact value from the property selected under "Group by".
+- Node icons: Optionally assign an icon URL or root-relative image path to each group. Transparent SVG and PNG icons are
+  drawn over the configured node color. Property-value icon rules also use the exact selected property's value.
 - Selection of relationships: Choose which properties to use for creating edges between nodes. You can select multiple 
 properties. If no properties are selected, all relationship properties will be used.
 - Exclude items without relationships: Optionally exclude items that do not have any relationships.

@@ -2,6 +2,18 @@
 
 All notable changes to this module will be documented in this file.
 
+## [1.1.0] - 2026-08-17
+
+### Added
+
+- Configurable node icons by resource class, resource template, or property value.
+- Node icons in the graph legend and a pan/zoom-aware Sigma canvas layer.
+
+### Fixed
+
+- Property-value node color mappings now accept an actual property value instead of incorrectly displaying a second property selector.
+- Property-value node icon mappings provide the same exact-value input.
+
 ## [1.0.1] - 2026-03-20
 
 ### Fixed
