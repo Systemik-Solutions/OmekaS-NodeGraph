@@ -1,7 +1,13 @@
 <?php
 use NodeGraph\Service\GraphHelper;
 
-$this->headLink()->appendStylesheet($this->assetUrl('css/nodegraph.css', 'NodeGraph'));
+$this->headLink()->appendStylesheet($this->assetUrl('css/nodegraph.css', 'NodeGraph') . '&nodegraph=20260825-1');
+$showPopup = !isset($show_popup) || (bool) $show_popup;
+$fullscreenIcon = $this->assetUrl('image/sigma.js/full-screen.svg', 'NodeGraph');
+$exitFullscreenIcon = $this->assetUrl('image/sigma.js/exit-full-screen.svg', 'NodeGraph');
+$zoomInIcon = $this->assetUrl('image/sigma.js/zoom-in.svg', 'NodeGraph');
+$zoomOutIcon = $this->assetUrl('image/sigma.js/zoom-out.svg', 'NodeGraph');
+$fitIcon = $this->assetUrl('image/sigma.js/show-graph.svg', 'NodeGraph');
 
 $ajaxUrl = $this->url(
     'node-graph-ajax',
@@ -89,6 +95,12 @@ if (!isset($sigmaGraph)) {
 
 <div class="network-view" style="width: <?= $this->escapeHtmlAttr($width) ?>; height: <?= $this->escapeHtmlAttr($height) ?>;">
     <div id="network-container">
+        <div id="network-controls" aria-label="Network controls">
+            <button type="button" id="network-fullscreen" class="network-button" aria-label="Toggle full screen" style="--btn-icon:url('<?= $this->escapeHtmlAttr($fullscreenIcon) ?>')"></button>
+            <button type="button" id="network-zoomIn" class="network-button" aria-label="Zoom in" style="--btn-icon:url('<?= $this->escapeHtmlAttr($zoomInIcon) ?>')"></button>
+            <button type="button" id="network-zoomOut" class="network-button" aria-label="Zoom out" style="--btn-icon:url('<?= $this->escapeHtmlAttr($zoomOutIcon) ?>')"></button>
+            <button type="button" id="network-fitScreen" class="network-button network-button--fit" aria-label="Fit graph to screen" style="--btn-icon:url('<?= $this->escapeHtmlAttr($fitIcon) ?>')"></button>
+        </div>
         <div id="legendDiv"></div>
         <div id="network-tooltip"></div>
     </div>
@@ -97,6 +109,9 @@ if (!isset($sigmaGraph)) {
 <script>
     const GET_METADATA_AJAX = <?= json_encode($ajaxUrl) ?>;
     const POPUP_CONFIG = <?= json_encode($popup_config ?? []) ?>;
+    const SHOW_NODE_POPUP = <?= $showPopup ? 'true' : 'false' ?>;
+    const FULLSCREEN_ICON = <?= json_encode($fullscreenIcon) ?>;
+    const EXIT_FULLSCREEN_ICON = <?= json_encode($exitFullscreenIcon) ?>;
 
     let nodes = <?= json_encode($sigmaGraph['nodes']) ?>;
     let edges = <?= json_encode($sigmaGraph['edges']) ?>;
@@ -104,19 +119,48 @@ if (!isset($sigmaGraph)) {
 
     let popupContentMap = [];
 
+    // Degree-based graph builders assign their minimum size when every node
+    // has the same degree. For a small result set with no edges that makes all
+    // nodes almost invisible, so apply a display-only floor based on count.
+    // Connected graphs retain their configured sizes unchanged.
+    function sparseNodeSizeFloor(nodeCount, edgeCount) {
+        if (edgeCount > 0 || nodeCount < 1) return 0;
+        if (nodeCount === 1) return 18;
+        if (nodeCount <= 5) return 14;
+        if (nodeCount <= 12) return 10;
+        if (nodeCount <= 30) return 7;
+        return 5;
+    }
+
+    function displayNodeSize(value, fallback, floor) {
+        const size = Number.isFinite(+value) ? +value : fallback;
+        return Math.max(size, floor);
+    }
+
+    function initializeNodeGraph() {
+        const container = document.getElementById('network-container');
+        if (!container || container.dataset.nodeGraphReady === '1') return;
+        if (container.clientWidth < 1 || container.clientHeight < 1) {
+            window.setTimeout(initializeNodeGraph, 100);
+            return;
+        }
+        container.dataset.nodeGraphReady = '1';
+
     let graph = new graphology.Graph({
         type: 'undirected',
         multi: false
     });
 
     // Add nodes
+    const initialSizeFloor = sparseNodeSizeFloor(nodes.length, edges.length);
+    container.dataset.nodeSizeFloor = String(initialSizeFloor);
     nodes.forEach(n => {
         const id = String(n.id);
         if (graph.hasNode(id)) return;
         graph.addNode(id, {
             x: +n.x,
             y: +n.y,
-            size: +n.size,
+            size: displayNodeSize(n.size, 4, initialSizeFloor),
             label: n.label || '',
             title: n.title || n.label || '',
             color: n.color,
@@ -149,8 +193,9 @@ if (!isset($sigmaGraph)) {
         settings: fa2Settings
     });
 
-    const container = document.getElementById('network-container')
-    const sigma = new Sigma(graph, container);
+    const sigma = new Sigma(graph, container, {
+        allowInvalidContainer: true
+    });
 
     // Draw configured icons over Sigma's colored WebGL node circles. Keeping
     // this as a Sigma-managed canvas layer preserves pan, zoom and resize
@@ -172,6 +217,76 @@ if (!isset($sigmaGraph)) {
         image.addEventListener('load', () => sigma.refresh());
         image.addEventListener('error', () => iconImages.set(attrs.icon, null));
         image.src = attrs.icon;
+    });
+
+    container.addEventListener('nodegraph:update', event => {
+        const payload = event.detail || {};
+        container._nodeGraphPendingUpdate = null;
+        const nextNodes = Array.isArray(payload.nodes) ? payload.nodes : [];
+        const nextEdges = Array.isArray(payload.edges) ? payload.edges : [];
+        const updateSizeFloor = sparseNodeSizeFloor(nextNodes.length, nextEdges.length);
+        container.dataset.nodeSizeFloor = String(updateSizeFloor);
+
+        graph.clear();
+        nextNodes.forEach((n, index) => {
+            const id = String(n.id);
+            if (graph.hasNode(id)) return;
+            graph.addNode(id, {
+                x: Number.isFinite(+n.x) ? +n.x : Math.cos(index) * 10,
+                y: Number.isFinite(+n.y) ? +n.y : Math.sin(index) * 10,
+                size: displayNodeSize(n.size, 4, updateSizeFloor),
+                label: n.label || '',
+                title: n.title || n.label || '',
+                color: n.color || '#777',
+                id: n.id,
+                originalColor: n.originalColor || n.color || '#777',
+                icon: n.icon || null,
+                link: n.link || null,
+                popupContent: n.popupContent || '',
+            });
+        });
+        nextEdges.forEach(e => {
+            const source = String(e.source);
+            const target = String(e.target);
+            if (!graph.hasNode(source) || !graph.hasNode(target) || graph.hasEdge(source, target)) return;
+            try {
+                graph.addEdge(source, target, { color: e.color || '#ccc', size: e.size || 1 });
+            } catch (_) {}
+        });
+
+        if (graph.order > 1) {
+            const settings = graphologyLibrary.layoutForceAtlas2.inferSettings(graph);
+            Object.assign(settings, payload.layoutSettings || {});
+            graphologyLibrary.layoutForceAtlas2.assign(graph, {
+                iterations: Number(payload.layoutIterations) || 120,
+                settings: settings
+            });
+        }
+        graph.forEachNode((node, attrs) => {
+            if (!attrs.icon || iconImages.has(attrs.icon)) return;
+            const image = new Image();
+            iconImages.set(attrs.icon, image);
+            image.addEventListener('load', () => sigma.refresh());
+            image.addEventListener('error', () => iconImages.set(attrs.icon, null));
+            image.src = attrs.icon;
+        });
+
+        selectedNode = null;
+        hideTooltip();
+        buildLegend(payload.legendMap || {});
+        sigma.getCamera().animatedReset({ duration: 250 });
+        sigma.refresh();
+    });
+
+    if (container._nodeGraphPendingUpdate) {
+        const pendingUpdate = container._nodeGraphPendingUpdate;
+        window.setTimeout(() => container.dispatchEvent(new CustomEvent('nodegraph:update', {
+            detail: pendingUpdate
+        })), 0);
+    }
+
+    container.addEventListener('nodegraph:resize', () => {
+        window.setTimeout(() => sigma.refresh(), 0);
     });
 
     function drawNodeIcons() {
@@ -200,14 +315,27 @@ if (!isset($sigmaGraph)) {
             if (!displayData || displayData.hidden) return;
 
             const position = sigma.framedGraphToViewport(displayData);
-            const radius = sigma.scaleSize(displayData.size);
+            // Sigma scales a graph node's configured size according to the
+            // current camera ratio. Derive the icon from that rendered radius
+            // so small/large nodes and zooming all remain proportional.
+            const nodeRadius = Math.max(1, sigma.scaleSize(displayData.size));
+            const iconRadius = nodeRadius * 0.82;
+
+            // Icons are usually square images with transparent artwork. Clip
+            // the image to the coloured node circle so no corner or artwork
+            // can extend beyond its boundary.
+            iconContext.save();
+            iconContext.beginPath();
+            iconContext.arc(position.x, position.y, nodeRadius * 0.94, 0, Math.PI * 2);
+            iconContext.clip();
             iconContext.drawImage(
                 image,
-                position.x - radius,
-                position.y - radius,
-                radius * 2,
-                radius * 2
+                position.x - iconRadius,
+                position.y - iconRadius,
+                iconRadius * 2,
+                iconRadius * 2
             );
+            iconContext.restore();
         });
     }
 
@@ -242,9 +370,7 @@ if (!isset($sigmaGraph)) {
     // Legend
     buildLegend(legendMap);
 
-    function selectNode(node) {
-        selectedNode = node;
-
+    function focusNodeVisual(node) {
         // Grey others & hide labels
         graph.forEachNode((n, attrs) => {
             if (n !== node) graph.setNodeAttribute(n, 'color', '#ccc');
@@ -268,31 +394,83 @@ if (!isset($sigmaGraph)) {
         });
 
         sigma.refresh();
-        showTooltip(graph.getNodeAttributes(node));
+    }
+
+    function restoreGraphVisual() {
+        graph.forEachNode((n, attrs) => {
+            graph.setNodeAttribute(n, 'color', attrs.originalColor || attrs.color);
+            graph.setNodeAttribute(n, 'label', attrs.title || attrs.label || '');
+        });
+        graph.forEachEdge(e => {
+            graph.setEdgeAttribute(e, 'color', '#ccc');
+            graph.removeEdgeAttribute(e, 'hidden');
+        });
+        sigma.refresh();
+    }
+
+    function selectNode(node) {
+        selectedNode = node;
+        focusNodeVisual(node);
+        const attrs = graph.getNodeAttributes(node);
+        if (SHOW_NODE_POPUP) showTooltip(attrs);
+        container.dispatchEvent(new CustomEvent('nodegraph:select', {
+            bubbles: true,
+            detail: { id: String(attrs.id ?? node), node: String(node), attributes: attrs }
+        }));
     }
 
     function clearSelection() {
         selectedNode = null;
 
-        // Restore nodes
-        graph.forEachNode((n, attrs) => {
-            graph.setNodeAttribute(n, 'color', attrs.originalColor || attrs.color);
-            graph.setNodeAttribute(n, 'label', attrs.title || attrs.label || '');
-        });
-
-        // Restore edges
-        graph.forEachEdge(e => {
-            graph.setEdgeAttribute(e, 'color', '#ccc');
-            graph.removeEdgeAttribute(e, 'hidden');
-        });
-
-        sigma.refresh();
+        restoreGraphVisual();
         hideTooltip();
+        container.dispatchEvent(new CustomEvent('nodegraph:clear', { bubbles: true }));
     }
+
+    // Preserve the original WordPress graph's draggable nodes. Sigma v3 does
+    // not enable node dragging automatically, so translate pointer movement
+    // from viewport coordinates back into graph coordinates.
+    let draggedNode = null;
+    let dragMoved = false;
+    let suppressNextNodeClick = false;
+    const mouseCaptor = sigma.getMouseCaptor();
+
+    sigma.on('downNode', ({ node }) => {
+        draggedNode = node;
+        dragMoved = false;
+        if (!sigma.getCustomBBox()) sigma.setCustomBBox(sigma.getBBox());
+    });
+
+    mouseCaptor.on('mousemovebody', event => {
+        if (draggedNode === null) return;
+        dragMoved = true;
+        event.preventSigmaDefault();
+        event.original?.preventDefault();
+        event.original?.stopPropagation();
+        const position = sigma.viewportToGraph(event);
+        graph.setNodeAttribute(draggedNode, 'x', position.x);
+        graph.setNodeAttribute(draggedNode, 'y', position.y);
+        sigma.refresh();
+    });
+
+    mouseCaptor.on('mouseup', () => {
+        if (draggedNode === null) return;
+        suppressNextNodeClick = dragMoved;
+        if (suppressNextNodeClick) {
+            window.setTimeout(() => { suppressNextNodeClick = false; }, 250);
+        }
+        draggedNode = null;
+        dragMoved = false;
+        container.style.cursor = 'pointer';
+    });
 
     sigma.on('clickNode', ({
         node
     }) => {
+        if (suppressNextNodeClick) {
+            suppressNextNodeClick = false;
+            return;
+        }
         const attrs = graph.getNodeAttributes(node);
         // toggle selection if clicking the same node
         if (selectedNode === node) {
@@ -307,6 +485,34 @@ if (!isset($sigmaGraph)) {
         if (selectedNode !== null) clearSelection();
     });
 
+    // Match the original Sigma graph: hovering previews the selected node's
+    // immediate neighbourhood; clicking keeps that state selected.
+    sigma.on('enterNode', ({ node }) => {
+        container.style.cursor = 'pointer';
+        if (selectedNode === null) focusNodeVisual(node);
+    });
+    sigma.on('leaveNode', () => {
+        container.style.cursor = 'default';
+        if (selectedNode === null) restoreGraphVisual();
+    });
+
+    const fullscreenButton = container.querySelector('#network-fullscreen');
+    const zoomInButton = container.querySelector('#network-zoomIn');
+    const zoomOutButton = container.querySelector('#network-zoomOut');
+    const fitButton = container.querySelector('#network-fitScreen');
+    fullscreenButton?.addEventListener('click', () => {
+        if (document.fullscreenElement === container) document.exitFullscreen();
+        else container.requestFullscreen?.();
+    });
+    zoomInButton?.addEventListener('click', () => sigma.getCamera().animatedZoom({ duration: 300 }));
+    zoomOutButton?.addEventListener('click', () => sigma.getCamera().animatedUnzoom({ duration: 300 }));
+    fitButton?.addEventListener('click', () => sigma.getCamera().animatedReset({ duration: 300 }));
+    document.addEventListener('fullscreenchange', () => {
+        if (!fullscreenButton) return;
+        const icon = document.fullscreenElement === container ? EXIT_FULLSCREEN_ICON : FULLSCREEN_ICON;
+        fullscreenButton.style.setProperty('--btn-icon', `url('${encodeURI(icon)}')`);
+    });
+
 
     // Legend builder 
     function buildLegend(legendData) {
@@ -318,12 +524,12 @@ if (!isset($sigmaGraph)) {
             const color = legendData[label].color || '#888';
             const icon = legendData[label].icon || '';
             const iconHtml = icon
-                ? `<img src="${esc(icon)}" alt="" style="display:block;width:100%;height:100%;">`
+                ? `<img src="${esc(icon)}" alt="" style="display:block;width:82%;height:82%;object-fit:contain;">`
                 : '';
             html += `
       <div class="legend-row" style="display:flex;align-items:center;justify-content:space-between;margin-top:3px">
         <span class="legend-label" style="margin-right:10px;">${esc(label)}</span>
-        <span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;background:${color};">
+        <span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:50%;overflow:hidden;background:${color};">
           ${iconHtml}
         </span>
       </div>`;
@@ -386,4 +592,7 @@ if (!isset($sigmaGraph)) {
         toolTipLeft = (e.clientX - c.left + 10) + 'px';
         toolTipTop = (e.clientY - c.top - 10) + 'px';
     });
+    }
+
+    initializeNodeGraph();
 </script>

@@ -61,4 +61,13 @@
     box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
     border-radius: 5px;
     cursor: pointer;
+    border: 0;
+    background-image: var(--btn-icon, none);
+    background-size: cover;
+    background-repeat: no-repeat;
+    background-position: center;
+}
+
+.network-button--fit {
+    background-size: 40% 40%;
 }
